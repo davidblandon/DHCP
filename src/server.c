@@ -47,6 +47,7 @@ void* handle_discover(void* arg) {
     }
 
     // Enviar la respuesta al cliente
+    
     send_offer(server, &client_addr, temp_sockfd);
 
     close(temp_sockfd);
@@ -68,6 +69,7 @@ void* handle_request(void* arg) {
 
     // Verificar que la IP en el mensaje de solicitud sea válida
     char* requested_ip = msg.ip_address;
+    char* requested_mac_address = msg.client_mac;
     bool ip_assigned = false;
 
     // Comprobar si la IP solicitada está asignada al cliente en el historial
@@ -75,7 +77,7 @@ void* handle_request(void* arg) {
                 if (strcmp(server->clients[i].mac, msg.client_mac) == 0) {
                     // La MAC está en el historial, llamar a process_renew_request
                     printf("Proceso de renew request");
-                    process_renew_request(server, msg.client_mac);
+                    process_renew_request(server, &client_addr, requested_mac_address);
                     return;
                 }
             }
@@ -90,12 +92,20 @@ void* handle_request(void* arg) {
     }   
 
     
-    send_ack(server, &client_addr, temp_sockfd, requested_ip, server->lease_time_default);
+    send_ack(server, &client_addr, temp_sockfd, requested_ip, server->lease_time_default, requested_mac_address);
     close(temp_sockfd);
     free(args);
     return NULL;
 }
 
+
+void handle_release(void* arg) {
+    struct ServerThreadArgs* args = (struct ServerThreadArgs*)arg;
+    Server* server = args->server;
+    struct sockaddr_in client_addr = args->client_addr;  // Usar la dirección del cliente
+    struct Message msg = args->msg;  // Obtener el mensaje DHCP_REQUEST
+    reclaim_ip(server, msg.client_mac);
+}
 
 
 
@@ -106,7 +116,7 @@ void listen_for_discover(Server* server, int sockfd) {
 
     struct sockaddr_in client_addr;
     socklen_t addr_len = sizeof(client_addr);
-    char buffer[512];
+    char buffer[1024];
     struct Message msg;
 
     while (1) {
@@ -116,7 +126,7 @@ void listen_for_discover(Server* server, int sockfd) {
 
 
         print_message_received(&msg);
-        if (msg.message_type == DHCP_DISCOVER || msg.message_type == DHCP_REQUEST) {
+        if (msg.message_type == DHCP_DISCOVER || msg.message_type == DHCP_REQUEST || msg.message_type == DHCP_RELEASE) {
             pthread_t thread;
             struct ServerThreadArgs* thread_args = malloc(sizeof(struct ServerThreadArgs));
             thread_args->server = server;
@@ -130,7 +140,10 @@ void listen_for_discover(Server* server, int sockfd) {
             } else if (msg.message_type == DHCP_REQUEST) {
 
                 pthread_create(&thread, NULL, handle_request, (void*)thread_args);
+            } else if (msg.message_type == DHCP_RELEASE) {
+                pthread_create(&thread, NULL, handle_release, (void*)thread_args);
             }
+
 
             pthread_detach(thread);
         }
@@ -147,7 +160,7 @@ void listen_for_discover(Server* server, int sockfd) {
 void send_offer(Server* server, struct sockaddr_in* client_addr, int sockfd) {
     // Implementación para enviar mensaje offer
     struct Message msg;
-    char buffer[512];
+    char buffer[1024];
 
     // Asignar una IP del pool utilizando FLSM
     char assigned_ip[16] = "";
@@ -187,22 +200,22 @@ void send_offer(Server* server, struct sockaddr_in* client_addr, int sockfd) {
 
 
 
-void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const char* ip_address, int lease_time) {
+void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const char* ip_address, int lease_time, const char* mac_address) {
     // Implementación para enviar mensaje ack
     struct Message msg;
-    char buffer[512];
+    char buffer[1024];
 
     // Guardar la IP en leased_ips
     bool lease_exists = false;
     for (int i = 0; i < server->leased_ip_count; i++) {
-        if (strcmp(server->leased_ips[i].ip, ip_address) == 0 && strcmp(server->leased_ips[i].mac, inet_ntoa(client_addr->sin_addr)) == 0) {
+        if (strcmp(server->leased_ips[i].ip, ip_address) == 0 && strcmp(server->leased_ips[i].mac, mac_address) == 0) {
             lease_exists = true;
             break;
         }
     }
     if (!lease_exists && server->leased_ip_count < MAX_IPS) {
         strncpy(server->leased_ips[server->leased_ip_count].ip, ip_address, sizeof(server->leased_ips[server->leased_ip_count].ip));
-        strncpy(server->leased_ips[server->leased_ip_count].mac, inet_ntoa(client_addr->sin_addr), sizeof(server->leased_ips[server->leased_ip_count].mac));
+        strncpy(server->leased_ips[server->leased_ip_count].mac, mac_address, sizeof(server->leased_ips[server->leased_ip_count].mac));
         server->leased_ips[server->leased_ip_count].lease_time = lease_time;
         server->leased_ip_count++;
     } else if (!lease_exists) {
@@ -212,14 +225,14 @@ void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const
     // Guardar la IP en clients (historial) si no está ya
     bool client_exists = false;
     for (int i = 0; i < server->client_count; i++) {
-        if (strcmp(server->clients[i].mac, inet_ntoa(client_addr->sin_addr)) == 0 && strcmp(server->clients[i].ip, ip_address) == 0) {
+        if (strcmp(server->clients[i].mac, mac_address) == 0 && strcmp(server->clients[i].ip, ip_address) == 0) {
             client_exists = true;
             break;
         }
     }
     if (!client_exists && server->client_count < MAX_IPS) {
         strncpy(server->clients[server->client_count].ip, ip_address, sizeof(server->clients[server->client_count].ip));
-        strncpy(server->clients[server->client_count].mac, inet_ntoa(client_addr->sin_addr), sizeof(server->clients[server->client_count].mac));
+        strncpy(server->clients[server->client_count].mac, mac_address, sizeof(server->clients[server->client_count].mac));
         server->clients[server->client_count].lease_time = lease_time;
         server->client_count++;
     } else if (!client_exists) {
@@ -241,43 +254,25 @@ void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const
     sendto(sockfd, buffer, sizeof(buffer), 0, (const struct sockaddr *)client_addr, sizeof(*client_addr));
 }
 
-void process_renew_request(Server* server, const char* client_mac) {
+void process_renew_request(Server* server, struct sockaddr_in* client_addr, const char* client_mac) {
     // Implementación para procesar solicitud de renovación
     for (int i = 0; i < server->client_count; i++) {
         if (strcmp(server->clients[i].mac, client_mac) == 0) {
             // Encontrar la IP asignada a la MAC y renovar el lease
-            struct sockaddr_in client_addr;
-            socklen_t addr_len = sizeof(client_addr);
+                int temp_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+                if (temp_sockfd == -1) {
+                    perror("No se pudo crear el socket temporal");
+                    return NULL;
+                }   
 
-            // Configurar dirección del cliente
-            memset(&client_addr, 0, sizeof(client_addr));
-            client_addr.sin_family = AF_INET;
-            client_addr.sin_addr.s_addr = inet_addr(server->clients[i].ip);
-            client_addr.sin_port = htons(CLIENT_PORT);
-
-            send_ack(server, &client_addr, -1, server->clients[i].ip, server->lease_time_default);
+            send_ack(server, &client_addr, temp_sockfd, server->clients[i].ip, server->lease_time_default, client_mac);
             return;
         }
     }
     printf("No lease found for MAC: %s\n", client_mac);
 }
 
-void process_release(Server* server, int sockfd) {
-    // Implementación para procesar release
-    char buffer[512];
-    struct Message msg;
-    struct sockaddr_in client_addr;
-    socklen_t addr_len = sizeof(client_addr);
 
-    // Recibir mensaje release usando el socket compartido
-    recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
-    deserialize_message(buffer, &msg);
-
-    if (msg.message_type == DHCP_RELEASE) {
-        printf("Received DHCP Release from %s\n", msg.client_mac);
-        reclaim_ip(server, msg.client_mac);
-    }
-}
 
 
 void reclaim_ip(Server* server, const char* client_mac) {
@@ -315,6 +310,7 @@ int main() {
     Server server;
     init(&server, "192.168.1.1", 120, "8.8.8.8", "192.168.1.254", "255.255.255.0");
 
+    printf("Server creado. DNS: %s", server.dns);
     // Agregar algunas IPs al pool de IPs disponibles para asignar
     strncpy(server.ip_pool[0], "192.168.1.100", sizeof(server.ip_pool[0]));
     strncpy(server.ip_pool[1], "192.168.1.101", sizeof(server.ip_pool[1]));

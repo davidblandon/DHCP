@@ -61,10 +61,14 @@ void init_client(struct Client *client) {
 // Función para enviar DHCP Discover
 void send_discover(int sockfd, struct sockaddr_in *server_addr, struct Client *client) {
     struct Message msg;
-    char buffer[256];
+    char buffer[1024];
 
     msg.message_type = DHCP_DISCOVER;
     strncpy(msg.client_mac, client->mac_address, sizeof(msg.client_mac));
+    strncpy(msg.ip_address, client->assigned_ip, sizeof(msg.ip_address));
+    strncpy(msg.dns, client->assigned_dns, sizeof(msg.dns));
+    strncpy(msg.gateway, client->assigned_gateway, sizeof(msg.gateway));
+    strncpy(msg.subnet_mask, client->assigned_subnet_mask, sizeof(msg.subnet_mask));
     strncpy(msg.sender, "Client", sizeof(msg.sender));
 
     serialize_message(&msg, buffer);
@@ -78,7 +82,10 @@ void send_discover(int sockfd, struct sockaddr_in *server_addr, struct Client *c
 
 // Función para recibir DHCP Offer
 void receive_offer(int sockfd, struct Client *client) {
-    char buffer[256];
+    
+    
+    char buffer[1024];
+    memset(buffer, 0, sizeof(buffer));
     socklen_t addr_len;
     struct sockaddr_in server_addr;
 
@@ -87,27 +94,31 @@ void receive_offer(int sockfd, struct Client *client) {
     } else {
         struct Message msg;
         deserialize_message(buffer, &msg);
-
+        print_message_received(&msg);
+        printf("DNS: %s", msg.dns);
         // Asignar los valores al cliente
         strncpy(client->assigned_ip, msg.ip_address, sizeof(client->assigned_ip));
         strncpy(client->assigned_dns, msg.dns, sizeof(client->assigned_dns));
         strncpy(client->assigned_gateway, msg.gateway, sizeof(client->assigned_gateway));
         strncpy(client->assigned_subnet_mask, msg.subnet_mask, sizeof(client->assigned_subnet_mask));
 
-        print_message_received(&msg);
+        printf("Valores asignados en receive offer");
+        
     }
 }
 
 // Función para enviar DHCP Request
 void send_request(int sockfd, struct sockaddr_in *server_addr, struct Client *client) {
     struct Message msg;
-    char buffer[256];
+    char buffer[1024];
 
     msg.message_type = DHCP_REQUEST;
     strncpy(msg.client_mac, client->mac_address, sizeof(msg.client_mac));
     strncpy(msg.sender, "Client", sizeof(msg.sender));
     strncpy(msg.ip_address, client->assigned_ip, sizeof(msg.ip_address));
-
+    strncpy(msg.dns, client->assigned_dns, sizeof(msg.dns));
+    strncpy(msg.gateway, client->assigned_gateway, sizeof(msg.gateway));
+    strncpy(msg.subnet_mask, client->assigned_subnet_mask, sizeof(msg.subnet_mask));
     serialize_message(&msg, buffer);
     print_message_sent(&msg);
 
@@ -120,7 +131,7 @@ void send_request(int sockfd, struct sockaddr_in *server_addr, struct Client *cl
 
 // Función para recibir DHCP Acknowledgement
 void receive_ack(int sockfd, struct Client *client) {
-    char buffer[256];
+    char buffer[1024];
     socklen_t addr_len;
     struct sockaddr_in server_addr;
 
@@ -131,6 +142,9 @@ void receive_ack(int sockfd, struct Client *client) {
         deserialize_message(buffer, &msg);
 
         print_message_received(&msg);
+        strncpy(msg.dns, client->assigned_dns, sizeof(msg.dns));
+        strncpy(msg.gateway, client->assigned_gateway, sizeof(msg.gateway));
+        strncpy(msg.subnet_mask, client->assigned_subnet_mask, sizeof(msg.subnet_mask));
         client->lease_time = msg.lease_time;  // Actualizar el lease time si viene en el ACK
     }
 }
@@ -138,7 +152,7 @@ void receive_ack(int sockfd, struct Client *client) {
 // Función para enviar DHCP Renew Request
 void send_renew_request(int sockfd, struct sockaddr_in *server_addr, struct Client *client) {
     struct Message msg;
-    char buffer[256];
+    char buffer[1024];
 
     // Configurar el mensaje DHCP Request para renovar el lease
     msg.message_type = DHCP_REQUEST;
@@ -166,12 +180,14 @@ void send_renew_request(int sockfd, struct sockaddr_in *server_addr, struct Clie
 // Función para enviar DHCP Release
 void send_release(int sockfd, struct sockaddr_in *server_addr, struct Client *client) {
     struct Message msg;
-    char buffer[256];
+    char buffer[1024];
 
     msg.message_type = DHCP_RELEASE;
     strncpy(msg.client_mac, client->mac_address, sizeof(msg.client_mac));
     strncpy(msg.sender, "Client", sizeof(msg.sender));
     strncpy(msg.ip_address, client->assigned_ip, sizeof(msg.ip_address));
+    strncpy(msg.dns, client->assigned_dns, sizeof(msg.dns));
+    strncpy(msg.subnet_mask, client->assigned_subnet_mask, sizeof(msg.subnet_mask));
 
     serialize_message(&msg, buffer);
 
@@ -264,8 +280,6 @@ int main() {
 
     // Recibir DHCP Acknowledgement
     receive_ack(sockfd, &client);
-
-    printf("Lease time seteado: %d", client.lease_time);
 
     // Monitorizar el tiempo de lease
     while (1) {
