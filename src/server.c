@@ -8,8 +8,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 
-#define SERVER_PORT 67
-#define CLIENT_PORT 68
+#define SERVER_PORT 2000
+#define CLIENT_PORT 1068
 
 // Constructor
 void init(Server* server, const char* ip, int lease_time_default, const char* dns, const char* gateway, const char* subnet_mask) {
@@ -36,6 +36,12 @@ void* handle_discover(void* arg) {
     // Crear socket
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    int opt = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt failed");
         exit(EXIT_FAILURE);
     }
 
@@ -320,4 +326,44 @@ void manage_leases(Server* server) {
         sleep(1); // Esperar 1 segundo antes de la siguiente comprobación
     }
 }
+
+int main() {
+    // Crear una instancia del servidor DHCP
+    Server server;
+
+    // Inicializar el servidor con los parámetros necesarios
+    init(&server, "192.168.1.10", 86400, "8.8.8.8", "192.168.1.254", "255.255.255.0");
+
+    // Agregar algunas IPs al pool de IPs disponibles para asignar
+    strncpy(server.ip_pool[0], "192.168.1.100", sizeof(server.ip_pool[0]));
+    strncpy(server.ip_pool[1], "192.168.1.101", sizeof(server.ip_pool[1]));
+    strncpy(server.ip_pool[2], "192.168.1.102", sizeof(server.ip_pool[2]));
+    server.ip_pool_count = 3;
+
+    // Crear un hilo para manejar la escucha de mensajes DHCP Discover
+    pthread_t discover_thread;
+    if (pthread_create(&discover_thread, NULL, (void *)listen_for_discover, (void *)&server) != 0) {
+        perror("Error creando el hilo para manejar los mensajes Discover");
+        exit(1);
+    }
+
+    // Crear un hilo para manejar la renovación de leases
+    pthread_t manage_leases_thread;
+    if (pthread_create(&manage_leases_thread, NULL, (void *)manage_leases, (void *)&server) != 0) {
+        perror("Error creando el hilo para manejar la renovación de leases");
+        exit(1);
+    }
+
+    // Hilo principal escucha y procesa los mensajes de solicitud de IP (Request)
+    while (1) {
+        process_request(&server);
+    }
+
+    // Esperar a que los hilos terminen (esto nunca se ejecutará realmente debido al bucle infinito)
+    pthread_join(discover_thread, NULL);
+    pthread_join(manage_leases_thread, NULL);
+
+    return 0;
+}
+
 
