@@ -20,4 +20,8 @@ struct Message {
     char sender[8];         // "Client" o "Server" según el origen del mensaje
 };
 
+void print_message(struct Message *msg);
+void deserialize_message(char *buffer, struct Message *msg);
+void serialize_message(struct Message *msg, char *buffer);
+
 #endif
