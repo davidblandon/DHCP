@@ -1,25 +1,49 @@
+# Variables
 CC = gcc
-CFLAGS = -Wall
-SRC = ../src
-INCLUDE = ../include
-TESTS = ../tests
+CFLAGS = -Wall -g -I../include
+LDFLAGS = -pthread
+SRC_DIR = ../src
+OBJ_DIR = obj
+OBJ_SERVER = $(OBJ_DIR)/server.o $(OBJ_DIR)/message.o
+OBJ_CLIENT = $(OBJ_DIR)/client.o $(OBJ_DIR)/message.o
+TARGET_SERVER = dhcp_server
+TARGET_CLIENT = dhcp_client
 
-# Archivos fuente principales
-SRC_FILES = $(SRC)/server.c $(SRC)/client.c $(SRC)/message.c
-INCLUDE_FILES = -I$(INCLUDE)
+# Reglas
 
-# Compilación del servidor
-dhcp_server: $(SRC_FILES)
-	$(CC) $(CFLAGS) $(SRC_FILES) -o dhcp_server $(INCLUDE_FILES)
+all: $(TARGET_SERVER) $(TARGET_CLIENT)
 
-# Compilación del cliente
-dhcp_client: $(SRC)/client.c $(SRC)/message.c
-	$(CC) $(CFLAGS) $(SRC)/client.c $(SRC)/message.c -o dhcp_client $(INCLUDE_FILES)
+# Regla para compilar el servidor DHCP
+$(TARGET_SERVER): $(OBJ_SERVER)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TARGET_SERVER) $(OBJ_SERVER)
 
-# Compilación del archivo de prueba para la clase Message
-test_message: $(TESTS)/test_message.c $(SRC)/message.c
-	$(CC) $(CFLAGS) $(TESTS)/test_message.c $(SRC)/message.c -o test_message $(INCLUDE_FILES)
+# Regla para compilar el cliente DHCP
+$(TARGET_CLIENT): $(OBJ_CLIENT)
+	$(CC) $(CFLAGS) -o $(TARGET_CLIENT) $(OBJ_CLIENT)
 
-# Limpiar binarios
+# Regla para compilar el archivo server.c
+$(OBJ_DIR)/server.o: $(SRC_DIR)/server.c ../include/server.h ../include/message.h
+	mkdir -p $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/server.c -o $(OBJ_DIR)/server.o
+
+# Regla para compilar el archivo client.c
+$(OBJ_DIR)/client.o: $(SRC_DIR)/client.c ../include/client.h ../include/message.h
+	mkdir -p $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/client.c -o $(OBJ_DIR)/client.o
+
+# Regla para compilar el archivo message.c (compartido entre el servidor y el cliente)
+$(OBJ_DIR)/message.o: $(SRC_DIR)/message.c ../include/message.h
+	mkdir -p $(OBJ_DIR)
+	$(CC) $(CFLAGS) -c $(SRC_DIR)/message.c -o $(OBJ_DIR)/message.o
+
+# Limpieza de los archivos compilados
 clean:
-	rm -f dhcp_server dhcp_client test_message
+	rm -f $(OBJ_DIR)/*.o $(TARGET_SERVER) $(TARGET_CLIENT)
+
+# Ejecución del servidor
+run_server: $(TARGET_SERVER)
+	./$(TARGET_SERVER)
+
+# Ejecución del cliente
+run_client: $(TARGET_CLIENT)
+	./$(TARGET_CLIENT
