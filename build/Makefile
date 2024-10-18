@@ -5,7 +5,7 @@ INCLUDE = ../include
 TESTS = ../tests
 
 # Archivos fuente principales
-SRC_FILES = $(SRC)/server.c $(SRC)/client.c $(SRC)/message.c $(SRC)/lease_manager.c $(SRC)/relay_handler.c
+SRC_FILES = $(SRC)/server.c $(SRC)/client.c $(SRC)/message.c
 INCLUDE_FILES = -I$(INCLUDE)
 
 # Compilación del servidor
@@ -13,8 +13,8 @@ dhcp_server: $(SRC_FILES)
 	$(CC) $(CFLAGS) $(SRC_FILES) -o dhcp_server $(INCLUDE_FILES)
 
 # Compilación del cliente
-dhcp_client: $(SRC_FILES)
-	$(CC) $(CFLAGS) $(SRC_FILES) -o dhcp_client $(INCLUDE_FILES)
+dhcp_client: $(SRC)/client.c $(SRC)/message.c
+	$(CC) $(CFLAGS) $(SRC)/client.c $(SRC)/message.c -o dhcp_client $(INCLUDE_FILES)
 
 # Compilación del archivo de prueba para la clase Message
 test_message: $(TESTS)/test_message.c $(SRC)/message.c
