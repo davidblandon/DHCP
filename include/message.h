@@ -15,8 +15,7 @@ struct Message {
     char client_mac[18];    // Dirección MAC del cliente
     char dns[16];           // Servidor DNS
     char gateway[16];       // Gateway predeterminado
-    char subnet_mask[16];   // Máscara de subred
-    int lease_time;         // Tiempo de arrendamiento en segundos
+    char subnet_mask[16];   // Máscara de subred      // Tiempo de arrendamiento en segundos
     char giaddr[16];        // IP del relay, si aplica
     char sender[8];         // "Client" o "Server" según el origen del mensaje
 };

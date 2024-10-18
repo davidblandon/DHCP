@@ -13,7 +13,7 @@ int main() {
     strncpy(msg.dns, "8.8.8.8", sizeof(msg.dns));
     strncpy(msg.gateway, "192.168.1.1", sizeof(msg.gateway));
     strncpy(msg.subnet_mask, "255.255.255.0", sizeof(msg.subnet_mask));
-    msg.lease_time = 3600;  // 1 hora de arrendamiento
+    strncpy(msg.giaddr, "192.168.1.254", sizeof(msg.giaddr));  // Relay ficticio
     strncpy(msg.sender, "Server", sizeof(msg.sender));
 
     // Imprimir el mensaje original
