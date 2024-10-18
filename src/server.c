@@ -169,26 +169,7 @@ void process_request(Server* server) {
             }
         }
 
-        // Guardar la IP en leased_ips
-        if (server->leased_ip_count < MAX_IPS) {
-            strncpy(server->leased_ips[server->leased_ip_count].ip, msg.ip_address, sizeof(server->leased_ips[server->leased_ip_count].ip));
-            strncpy(server->leased_ips[server->leased_ip_count].mac, msg.client_mac, sizeof(server->leased_ips[server->leased_ip_count].mac));
-            server->leased_ips[server->leased_ip_count].lease_time = msg.lease_time; // Usar el lease_time del mensaje
-            server->leased_ip_count++;
-        } else {
-            printf("No more IP addresses can be leased.\n");
-        }
-
-        // Guardar la IP en clients (historial)
-        if (server->client_count < MAX_IPS) {
-            strncpy(server->clients[server->client_count].ip, msg.ip_address, sizeof(server->clients[server->client_count].ip));
-            strncpy(server->clients[server->client_count].mac, msg.client_mac, sizeof(server->clients[server->client_count].mac));
-            server->clients[server->client_count].lease_time = msg.lease_time; // Usar el lease_time del mensaje
-            server->client_count++;
-        } else {
-            printf("No more clients can be stored.\n");
-        }
-
+        // Si la MAC no está en el historial, proceder con el ACK
         send_ack(server, &client_addr, sockfd, msg.ip_address, msg.lease_time);
     }
 
@@ -199,6 +180,40 @@ void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const
     // Implementación para enviar mensaje ack
     struct Message msg;
     char buffer[512];
+
+    // Guardar la IP en leased_ips
+    bool lease_exists = false;
+    for (int i = 0; i < server->leased_ip_count; i++) {
+        if (strcmp(server->leased_ips[i].ip, ip_address) == 0 && strcmp(server->leased_ips[i].mac, inet_ntoa(client_addr->sin_addr)) == 0) {
+            lease_exists = true;
+            break;
+        }
+    }
+    if (!lease_exists && server->leased_ip_count < MAX_IPS) {
+        strncpy(server->leased_ips[server->leased_ip_count].ip, ip_address, sizeof(server->leased_ips[server->leased_ip_count].ip));
+        strncpy(server->leased_ips[server->leased_ip_count].mac, inet_ntoa(client_addr->sin_addr), sizeof(server->leased_ips[server->leased_ip_count].mac));
+        server->leased_ips[server->leased_ip_count].lease_time = lease_time;
+        server->leased_ip_count++;
+    } else if (!lease_exists) {
+        printf("No more IP addresses can be leased.\n");
+    }
+
+    // Guardar la IP en clients (historial) si no está ya
+    bool client_exists = false;
+    for (int i = 0; i < server->client_count; i++) {
+        if (strcmp(server->clients[i].mac, inet_ntoa(client_addr->sin_addr)) == 0 && strcmp(server->clients[i].ip, ip_address) == 0) {
+            client_exists = true;
+            break;
+        }
+    }
+    if (!client_exists && server->client_count < MAX_IPS) {
+        strncpy(server->clients[server->client_count].ip, ip_address, sizeof(server->clients[server->client_count].ip));
+        strncpy(server->clients[server->client_count].mac, inet_ntoa(client_addr->sin_addr), sizeof(server->clients[server->client_count].mac));
+        server->clients[server->client_count].lease_time = lease_time;
+        server->client_count++;
+    } else if (!client_exists) {
+        printf("No more clients can be stored.\n");
+    }
 
     msg.message_type = DHCP_ACK;
     strncpy(msg.ip_address, ip_address, sizeof(msg.ip_address));
@@ -294,6 +309,15 @@ void reclaim_ip(Server* server, const char* client_mac) {
 
 void manage_leases(Server* server) {
     // Implementación para monitorear leases
-    printf("Managing Leases\n");
-    // Aquí se debería implementar la lógica para monitorear leases.
+    while (1) {
+        time_t current_time = time(NULL);
+        for (int i = 0; i < server->leased_ip_count; i++) {
+            if (difftime(current_time, server->leased_ips[i].lease_time) >= 0) {
+                printf("Lease expired for IP: %s, MAC: %s\n", server->leased_ips[i].ip, server->leased_ips[i].mac);
+                reclaim_ip(server, server->leased_ips[i].mac);
+            }
+        }
+        sleep(1); // Esperar 1 segundo antes de la siguiente comprobación
+    }
 }
+
