@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include "utils.c"
 #include <string.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -71,7 +72,7 @@ void send_discover(int sockfd, struct sockaddr_in *server_addr, struct Client *c
     if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)server_addr, sizeof(*server_addr)) == -1) {
         perror("Error enviando DHCP Discover");
     } else {
-        printf("DHCP Discover enviado.\n");
+        print_message_sent (&msg);
     }
 }
 
@@ -93,7 +94,7 @@ void receive_offer(int sockfd, struct Client *client) {
         strncpy(client->assigned_gateway, msg.gateway, sizeof(client->assigned_gateway));
         strncpy(client->assigned_subnet_mask, msg.subnet_mask, sizeof(client->assigned_subnet_mask));
 
-        printf("DHCP Offer recibido. IP ofrecida: %s\n", client->assigned_ip);
+        print_message_received(&msg);
     }
 }
 
@@ -108,6 +109,7 @@ void send_request(int sockfd, struct sockaddr_in *server_addr, struct Client *cl
     strncpy(msg.ip_address, client->assigned_ip, sizeof(msg.ip_address));
 
     serialize_message(&msg, buffer);
+    print_message_sent(&msg);
 
     if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)server_addr, sizeof(*server_addr)) == -1) {
         perror("Error enviando DHCP Request");
@@ -128,7 +130,7 @@ void receive_ack(int sockfd, struct Client *client) {
         struct Message msg;
         deserialize_message(buffer, &msg);
 
-        printf("DHCP Acknowledgement recibido. IP asignada: %s\n", client->assigned_ip);
+        print_message_received(&msg);
         client->lease_time = msg.lease_time;  // Actualizar el lease time si viene en el ACK
     }
 }
@@ -151,8 +153,7 @@ void send_renew_request(int sockfd, struct sockaddr_in *server_addr, struct Clie
     if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)server_addr, sizeof(*server_addr)) == -1) {
         perror("Error enviando DHCP Renew Request");
     } else {
-        printf("DHCP Renew Request enviado para la IP: %s\n", client->assigned_ip);
-
+        print_message_sent(&msg);
         // Esperar la respuesta del servidor (ACK)
         receive_ack(sockfd, client);
 
@@ -177,7 +178,7 @@ void send_release(int sockfd, struct sockaddr_in *server_addr, struct Client *cl
     if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)server_addr, sizeof(*server_addr)) == -1) {
         perror("Error enviando DHCP Release");
     } else {
-        printf("DHCP Release enviado. IP liberada: %s\n", client->assigned_ip);
+        print_message_sent(&msg);
     }
 }
 
@@ -186,12 +187,19 @@ void check_lease_time(int sockfd, struct sockaddr_in *server_addr, struct Client
     static time_t last_check_time = 0;
     time_t current_time = time(NULL);
 
-    if (current_time - last_check_time > client->lease_time / 2) {
+    // Inicializar last_check_time en la primera ejecución
+    if (last_check_time == 0) {
+        last_check_time = current_time;
+    }
+
+    // Solo intentar renovar si ha pasado más de la mitad del tiempo del lease
+    if (current_time - last_check_time >= client->lease_time / 2) {
         printf("El tiempo de lease está por expirar. Intentando renovar IP: %s\n", client->assigned_ip);
         send_renew_request(sockfd, server_addr, client);
         last_check_time = current_time;
     }
 }
+
 
 // Mostrar la información del cliente
 void print_client_info(struct Client *client) {
@@ -240,9 +248,11 @@ int main() {
     // Configurar la dirección del servidor DHCP
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(67);  // Puerto 67 para DHCP server
-    inet_pton(AF_INET, client.server_ip, &server_addr.sin_addr);  // La IP del servidor
+    server_addr.sin_port = htons(2000);  // Puerto 67 para DHCP server
+    inet_pton(AF_INET, "255.255.255.255", &server_addr.sin_addr);  // La IP del servidor
 
+    int broadcastEnable = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
     // Enviar DHCP Discover
     send_discover(sockfd, &server_addr, &client);
 
@@ -254,6 +264,8 @@ int main() {
 
     // Recibir DHCP Acknowledgement
     receive_ack(sockfd, &client);
+
+    printf("Lease time seteado: %d", client.lease_time);
 
     // Monitorizar el tiempo de lease
     while (1) {

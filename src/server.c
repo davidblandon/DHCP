@@ -1,5 +1,6 @@
 #include "server.h"
 #include "message.h"
+#include "utils.c"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +11,14 @@
 
 #define SERVER_PORT 2000
 #define CLIENT_PORT 1068
+
+// Estructura para pasar el servidor y el socket a los hilos
+struct ServerThreadArgs {
+    Server* server;
+    int sockfd;
+    struct sockaddr_in client_addr;  // Agregar para almacenar la dirección del cliente
+    struct Message msg;
+};
 
 // Constructor
 void init(Server* server, const char* ip, int lease_time_default, const char* dns, const char* gateway, const char* subnet_mask) {
@@ -25,69 +34,115 @@ void init(Server* server, const char* ip, int lease_time_default, const char* dn
 }
 
 void* handle_discover(void* arg) {
-    Server* server = (Server*)arg;
-    char buffer[512];
-    struct Message msg;
+    struct ServerThreadArgs* args = (struct ServerThreadArgs*)arg;
+    Server* server = args->server;
+    struct sockaddr_in client_addr = args->client_addr;  // Usar la dirección del cliente
 
-    int sockfd;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t addr_len = sizeof(client_addr);
-
-    // Crear socket
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("Socket creation failed");
-        exit(EXIT_FAILURE);
+    // Crear un nuevo socket temporal para enviar la respuesta al cliente
+    int temp_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (temp_sockfd == -1) {
+        perror("No se pudo crear el socket temporal");
+        free(args);
+        return NULL;
     }
 
-    int opt = 1;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        perror("setsockopt failed");
-        exit(EXIT_FAILURE);
-    }
+    // Enviar la respuesta al cliente
+    send_offer(server, &client_addr, temp_sockfd);
 
-    // Configurar dirección del servidor
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(SERVER_PORT);
-
-    // Enlazar el socket con la dirección del servidor
-    if (bind(sockfd, (const struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Bind failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
-    }
-
-    // Recibir mensaje discover
-    recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
-    deserialize_message(buffer, &msg);
-
-    // Revisar si la MAC ya tiene un préstamo actual
-    for (int i = 0; i < server->leased_ip_count; i++) {
-        if (strcmp(server->leased_ips[i].mac, msg.client_mac) == 0) {
-            printf("Error: MAC %s ya tiene un préstamo actual.\n", msg.client_mac);
-            close(sockfd);
-            return NULL;
-        }
-    }
-
-    if (msg.message_type == DHCP_DISCOVER) {
-        printf("Received DHCP Discover from %s\n", msg.client_mac);
-        send_offer(server, &client_addr, sockfd);
-    }
-
-    close(sockfd);
+    close(temp_sockfd);
+    free(args);
     return NULL;
 }
 
-void listen_for_discover(Server* server) {
-    // Implementación para escuchar mensajes discover
-    while (1) {
-        pthread_t thread;
-        pthread_create(&thread, NULL, handle_discover, (void*)server);
-        pthread_detach(thread);
-    }
+
+
+void* handle_request(void* arg) {
+    printf("initializing handle_request\n");
+    struct ServerThreadArgs* args = (struct ServerThreadArgs*)arg;
+    Server* server = args->server;
+    struct sockaddr_in client_addr = args->client_addr;  // Usar la dirección del cliente
+    struct Message msg = args->msg;  // Obtener el mensaje DHCP_REQUEST
+
+    // Comprobar si es un mensaje DHCP_REQUEST
+    printf("Procesando DHCP Request del cliente %s\n", inet_ntoa(client_addr.sin_addr));
+
+    // Verificar que la IP en el mensaje de solicitud sea válida
+    char* requested_ip = msg.ip_address;
+    bool ip_assigned = false;
+
+    // Comprobar si la IP solicitada está asignada al cliente en el historial
+    for (int i = 0; i < server->client_count; i++) {
+                if (strcmp(server->clients[i].mac, msg.client_mac) == 0) {
+                    // La MAC está en el historial, llamar a process_renew_request
+                    printf("Proceso de renew request");
+                    process_renew_request(server, msg.client_mac);
+                    return;
+                }
+            }
+
+    printf("Confirmando IP asignada %s para el cliente %s\n", requested_ip, msg.client_mac);
+
+    int temp_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (temp_sockfd == -1) {
+        perror("No se pudo crear el socket temporal");
+        free(args);
+        return NULL;
+    }   
+
+    
+    send_ack(server, &client_addr, temp_sockfd, requested_ip, server->lease_time_default);
+    close(temp_sockfd);
+    free(args);
+    return NULL;
 }
+
+
+
+
+void listen_for_discover(Server* server, int sockfd) {
+    struct ServerThreadArgs args;
+    args.server = server;
+    args.sockfd = sockfd;
+
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+    char buffer[512];
+    struct Message msg;
+
+    while (1) {
+        recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr*)&client_addr, &addr_len);
+        deserialize_message(buffer, &msg);
+
+
+
+        print_message_received(&msg);
+        if (msg.message_type == DHCP_DISCOVER || msg.message_type == DHCP_REQUEST) {
+            pthread_t thread;
+            struct ServerThreadArgs* thread_args = malloc(sizeof(struct ServerThreadArgs));
+            thread_args->server = server;
+            thread_args->client_addr = client_addr;
+            thread_args->msg = msg; 
+
+            
+            if (msg.message_type == DHCP_DISCOVER) {
+
+                pthread_create(&thread, NULL, handle_discover, (void*)thread_args);
+            } else if (msg.message_type == DHCP_REQUEST) {
+
+                pthread_create(&thread, NULL, handle_request, (void*)thread_args);
+            }
+
+            pthread_detach(thread);
+        }
+    }
+
+
+
+}
+
+
+
+
 
 void send_offer(Server* server, struct sockaddr_in* client_addr, int sockfd) {
     // Implementación para enviar mensaje offer
@@ -124,63 +179,13 @@ void send_offer(Server* server, struct sockaddr_in* client_addr, int sockfd) {
     strncpy(msg.sender, "Server", sizeof(msg.sender));
 
     serialize_message(&msg, buffer);
-    printf("Sending DHCP Offer: %s\n", buffer);
+    print_message_sent(&msg);
 
     // Enviar mensaje offer
     sendto(sockfd, buffer, sizeof(buffer), 0, (const struct sockaddr *)client_addr, sizeof(*client_addr));
 }
 
-void process_request(Server* server) {
-    // Implementación para procesar request
-    char buffer[512];
-    struct Message msg;
 
-    int sockfd;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t addr_len = sizeof(client_addr);
-
-    // Crear socket
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("Socket creation failed");
-        exit(EXIT_FAILURE);
-    }
-
-    // Configurar dirección del servidor
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(SERVER_PORT);
-
-    // Enlazar el socket con la dirección del servidor
-    if (bind(sockfd, (const struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Bind failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
-    }
-
-    // Recibir mensaje request
-    recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
-    deserialize_message(buffer, &msg);
-
-    if (msg.message_type == DHCP_REQUEST) {
-        printf("Received DHCP Request from %s\n", msg.client_mac);
-
-        // Comprobar si la MAC está en el historial clients[]
-        for (int i = 0; i < server->client_count; i++) {
-            if (strcmp(server->clients[i].mac, msg.client_mac) == 0) {
-                // La MAC está en el historial, llamar a process_renew_request
-                process_renew_request(server, msg.client_mac);
-                close(sockfd);
-                return;
-            }
-        }
-
-        // Si la MAC no está en el historial, proceder con el ACK
-        send_ack(server, &client_addr, sockfd, msg.ip_address, msg.lease_time);
-    }
-
-    close(sockfd);
-}
 
 void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const char* ip_address, int lease_time) {
     // Implementación para enviar mensaje ack
@@ -230,7 +235,7 @@ void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const
     strncpy(msg.sender, "Server", sizeof(msg.sender));
 
     serialize_message(&msg, buffer);
-    printf("Sending DHCP Ack: %s\n", buffer);
+    print_message_sent(&msg);
 
     // Enviar mensaje ack
     sendto(sockfd, buffer, sizeof(buffer), 0, (const struct sockaddr *)client_addr, sizeof(*client_addr));
@@ -250,42 +255,21 @@ void process_renew_request(Server* server, const char* client_mac) {
             client_addr.sin_addr.s_addr = inet_addr(server->clients[i].ip);
             client_addr.sin_port = htons(CLIENT_PORT);
 
-            send_ack(server, &client_addr, -1, server->clients[i].ip, server->clients[i].lease_time);
+            send_ack(server, &client_addr, -1, server->clients[i].ip, server->lease_time_default);
             return;
         }
     }
     printf("No lease found for MAC: %s\n", client_mac);
 }
 
-void process_release(Server* server) {
+void process_release(Server* server, int sockfd) {
     // Implementación para procesar release
     char buffer[512];
     struct Message msg;
-
-    int sockfd;
-    struct sockaddr_in server_addr, client_addr;
+    struct sockaddr_in client_addr;
     socklen_t addr_len = sizeof(client_addr);
 
-    // Crear socket
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("Socket creation failed");
-        exit(EXIT_FAILURE);
-    }
-
-    // Configurar dirección del servidor
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(SERVER_PORT);
-
-    // Enlazar el socket con la dirección del servidor
-    if (bind(sockfd, (const struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        perror("Bind failed");
-        close(sockfd);
-        exit(EXIT_FAILURE);
-    }
-
-    // Recibir mensaje release
+    // Recibir mensaje release usando el socket compartido
     recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&client_addr, &addr_len);
     deserialize_message(buffer, &msg);
 
@@ -293,9 +277,8 @@ void process_release(Server* server) {
         printf("Received DHCP Release from %s\n", msg.client_mac);
         reclaim_ip(server, msg.client_mac);
     }
-
-    close(sockfd);
 }
+
 
 void reclaim_ip(Server* server, const char* client_mac) {
     // Implementación para recolectar IPs expiradas
@@ -330,9 +313,7 @@ void manage_leases(Server* server) {
 int main() {
     // Crear una instancia del servidor DHCP
     Server server;
-
-    // Inicializar el servidor con los parámetros necesarios
-    init(&server, "192.168.1.10", 86400, "8.8.8.8", "192.168.1.254", "255.255.255.0");
+    init(&server, "192.168.1.1", 120, "8.8.8.8", "192.168.1.254", "255.255.255.0");
 
     // Agregar algunas IPs al pool de IPs disponibles para asignar
     strncpy(server.ip_pool[0], "192.168.1.100", sizeof(server.ip_pool[0]));
@@ -340,30 +321,39 @@ int main() {
     strncpy(server.ip_pool[2], "192.168.1.102", sizeof(server.ip_pool[2]));
     server.ip_pool_count = 3;
 
-    // Crear un hilo para manejar la escucha de mensajes DHCP Discover
-    pthread_t discover_thread;
-    if (pthread_create(&discover_thread, NULL, (void *)listen_for_discover, (void *)&server) != 0) {
-        perror("Error creando el hilo para manejar los mensajes Discover");
-        exit(1);
+    // Crear un socket para la comunicación DHCP
+    int sockfd;
+    sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sockfd == -1) {
+        perror("No se pudo crear el socket");
+        return 1;
     }
 
-    // Crear un hilo para manejar la renovación de leases
-    pthread_t manage_leases_thread;
-    if (pthread_create(&manage_leases_thread, NULL, (void *)manage_leases, (void *)&server) != 0) {
-        perror("Error creando el hilo para manejar la renovación de leases");
-        exit(1);
+    // Configurar opciones del socket
+    int opt = 1;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt falló");
+        close(sockfd);
+        return 1;
     }
 
-    // Hilo principal escucha y procesa los mensajes de solicitud de IP (Request)
-    while (1) {
-        process_request(&server);
+    // Configurar la dirección del servidor
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(SERVER_PORT);
+
+    // Realizar bind una sola vez
+    if (bind(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Bind falló");
+        close(sockfd);
+        return 1;
     }
 
-    // Esperar a que los hilos terminen (esto nunca se ejecutará realmente debido al bucle infinito)
-    pthread_join(discover_thread, NULL);
-    pthread_join(manage_leases_thread, NULL);
+    // Iniciar escucha para DHCP Discover y Request
+    listen_for_discover(&server, sockfd);
 
+    close(sockfd);
     return 0;
 }
-
-

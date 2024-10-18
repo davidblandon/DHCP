@@ -43,5 +43,6 @@ void print_message(struct Message *msg) {
     printf("Lease Time: %d\n", msg->lease_time);  // Mostrar lease_time
     printf("Relay IP (giaddr): %s\n", msg->giaddr);
     printf("Sender: %s\n", msg->sender);
+    printf("\n\n\n"); 
 }
 
