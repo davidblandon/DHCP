@@ -37,14 +37,15 @@ Podemos ver en el codigo cómo se crea el socket UDP usando SOCK_DGRAM:
 Usando los diagramas y despues de haber escogido el tipo de socket, empezamos a desarrollar el proyecto. A continuacion, en el video les explicaremos el codigo, las funcionalidades que tiene y como correrlo.
 
 ### Video
+https://youtu.be/24uoMqJmL0Y?feature=shared
 
 ## 3. Aspectos Logrados y No logrados
-En este proyecto, se alcanzaron varios objetivos. El servidor y los clientes pueden mandar y recibir mensajes estando en diferentes o en la misma red.
+En este proyecto, se alcanzaron varios objetivos. El servidor y los clientes pueden mandar y recibir mensajes estando en la misma red.
 El cliente manda los mensajes broadcast DHCPDISCOVER y DHCPREQUEST de forma correcta. El servidor manda los mensajes DHCPOFFER y DHCPACK de froma correcta y también logra recibir solicitudes simultaneamente usando threading. 
 Finalmente, se hace uso de la API Sockets Berkeley para usar UDP en nuestro proyecto.
 
 Sin embargo, quedaron algunos aspectos sin implementar como la completitud del mensaje es decir, a veces el mensaje no se manda completo y el manage lease
-ya qie el servidor no comprueba si una IP cumplió su tiempo de alquiler.
+ya que el servidor no comprueba si una IP cumplió su tiempo de alquiler, finalmente, tampoco pudimos lograr que el servidor y el cloente se comunicaran del todo estando en redes distintas.
 
 ## 4. Conclusiones
 Este proyecto nos ayudo a entender mejor el funcionamiendo de un DHCP, de sockets (UDP y TCP) en C y más, 
