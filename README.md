@@ -7,6 +7,8 @@ Este repositorio contiene la implementación de un servidor y un cliente DHCP.
 - David Blandon
 - Natalia Ceballos 
 
+En este readme se puede encontrar un resumen de todo lo trabajado y aprendido en el desarrollo de esta aplicacion, todo lo que no sea explicado explicitamente en este readme tambien puede ser leido del codigo.
+
 ## 2. Desarrollo
 
 ### Tipo de Socket (TCP o UDP)
@@ -32,11 +34,30 @@ Podemos ver en el codigo cómo se crea el socket UDP usando SOCK_DGRAM:
   
 ![image](https://github.com/user-attachments/assets/0104355d-359f-40eb-a6f8-ce78b2d958fa)
 
+Usando los diagramas y despues de haber escogido el tipo de socket, empezamos a desarrollar el proyecto. A continuacion, en el video les explicaremos el codigo, las funcionalidades que tiene y como correrlo.
+
 ### Video
 
 ## 3. Aspectos Logrados y No logrados
+En este proyecto, se alcanzaron varios objetivos. El servidor y los clientes pueden mandar y recibir mensajes estando en diferentes o en la misma red.
+El cliente manda los mensajes broadcast DHCPDISCOVER y DHCPREQUEST de forma correcta. El servidor manda los mensajes DHCPOFFER y DHCPACK de froma correcta y también logra recibir solicitudes simultaneamente usando threading. 
+Finalmente, se hace uso de la API Sockets Berkeley para usar UDP en nuestro proyecto.
+
+Sin embargo, quedaron algunos aspectos sin implementar como la completitud del mensaje es decir, a veces el mensaje no se manda completo y el manage lease
+ya qie el servidor no comprueba si una IP cumplió su tiempo de alquiler.
 
 ## 4. Conclusiones
+Este proyecto nos ayudo a entender mejor el funcionamiendo de un DHCP, de sockets (UDP y TCP) en C y más, 
+fue un reto interesante para construir y entender sistemas a nivel de infrastuctura de red.
+Para el desarrollo de este proyecto también fue fundamental una buena planeación antes de empezar a desarrollar, 
+lo cual nos permitio hacernos una idea de la estructura y funcionamiento de la aplicacion. 
 
 ## 5. Referencias 
 [UDP Client Server using connect](https://www.geeksforgeeks.org/udp-client-server-using-connect-c-implementation/)
+
+[Beej's Guide to C Programming](https://beej.us/guide/bgc/html/split/)
+
+[Beej's Guide to Network Programming](https://beej.us/guide/bgnet/html/split/)
+
+[DHCP](https://datatracker.ietf.org/doc/html/rfc2131)
+
