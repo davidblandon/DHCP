@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include "message.h"  // Incluye las definiciones de mensajes y funciones para serializarlos/deserializarlos
+#include "relay_handler.h"
 
 #define SERVER_PORT 2000  
 #define CLIENT_PORT 1068  
@@ -82,7 +82,7 @@ int main() {
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(SERVER_PORT);
-    inet_pton(AF_INET, "192.168.1.10", &server_addr.sin_addr);  // Dirección IP del servidor DHCP
+    inet_pton(AF_INET, SERVER_IP, &server_addr.sin_addr);  // Dirección IP del servidor DHCP
 
     // Iniciar el proceso de relay
     printf("Relay DHCP en funcionamiento...\n");
