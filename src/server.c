@@ -10,7 +10,7 @@
 #include <arpa/inet.h>
 
 #define SERVER_PORT 2000
-#define CLIENT_PORT 1068
+#define CLIENT_PORT 1067
 
 // Estructura para pasar el servidor y el socket a los hilos
 struct ServerThreadArgs {
