@@ -13,8 +13,6 @@ struct Client {
     char assigned_gateway[16];      // Dirección del gateway asignado
     char assigned_subnet_mask[16];  // Máscara de subred asignada
     int lease_time;                 // Tiempo de lease asignado en segundos
-    char server_ip[16];             // Dirección IP del servidor DHCP
-    char relay_ip[16];              // Dirección IP del relay (si aplica)
 };
 
 // Funciones relacionadas con el cliente

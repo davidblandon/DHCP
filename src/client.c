@@ -14,7 +14,7 @@
 // Variables globales
 int sockfd;
 struct Client client;
-struct sockaddr_in server_addr;
+struct sockaddr_in broadcast_addr;
 
 // Función para obtener la dirección MAC real
 int get_mac_address(char *mac_address) {
@@ -54,12 +54,10 @@ void init_client(struct Client *client) {
     strncpy(client->assigned_gateway, "0.0.0.0", sizeof(client->assigned_gateway));
     strncpy(client->assigned_subnet_mask, "0.0.0.0", sizeof(client->assigned_subnet_mask));
     client->lease_time = 0;
-    strncpy(client->server_ip, "192.168.1.1", sizeof(client->server_ip));  // Cambiar según el servidor
-    strncpy(client->relay_ip, "0.0.0.0", sizeof(client->relay_ip));  // Si aplica
 }
 
 // Función para enviar DHCP Discover
-void send_discover(int sockfd, struct sockaddr_in *server_addr, struct Client *client) {
+void send_discover(int sockfd, struct sockaddr_in *broadcast_addr, struct Client *client) {
     struct Message msg;
     char buffer[256];
 
@@ -69,7 +67,7 @@ void send_discover(int sockfd, struct sockaddr_in *server_addr, struct Client *c
 
     serialize_message(&msg, buffer);
 
-    if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)server_addr, sizeof(*server_addr)) == -1) {
+    if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)broadcast_addr, sizeof(*broadcast_addr)) == -1) {
         perror("Error enviando DHCP Discover");
     } else {
         print_message_sent (&msg);
@@ -80,9 +78,9 @@ void send_discover(int sockfd, struct sockaddr_in *server_addr, struct Client *c
 void receive_offer(int sockfd, struct Client *client) {
     char buffer[256];
     socklen_t addr_len;
-    struct sockaddr_in server_addr;
+    struct sockaddr_in broadcast_addr;
 
-    if (recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&server_addr, &addr_len) == -1) {
+    if (recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&broadcast_addr, &addr_len) == -1) {
         perror("Error recibiendo DHCP Offer");
     } else {
         struct Message msg;
@@ -99,7 +97,7 @@ void receive_offer(int sockfd, struct Client *client) {
 }
 
 // Función para enviar DHCP Request
-void send_request(int sockfd, struct sockaddr_in *server_addr, struct Client *client) {
+void send_request(int sockfd, struct sockaddr_in *broadcast_addr, struct Client *client) {
     struct Message msg;
     char buffer[256];
 
@@ -111,7 +109,7 @@ void send_request(int sockfd, struct sockaddr_in *server_addr, struct Client *cl
     serialize_message(&msg, buffer);
     print_message_sent(&msg);
 
-    if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)server_addr, sizeof(*server_addr)) == -1) {
+    if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)broadcast_addr, sizeof(*broadcast_addr)) == -1) {
         perror("Error enviando DHCP Request");
     } else {
         printf("DHCP Request enviado para la IP: %s\n", client->assigned_ip);
@@ -122,9 +120,9 @@ void send_request(int sockfd, struct sockaddr_in *server_addr, struct Client *cl
 void receive_ack(int sockfd, struct Client *client) {
     char buffer[256];
     socklen_t addr_len;
-    struct sockaddr_in server_addr;
+    struct sockaddr_in broadcast_addr;
 
-    if (recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&server_addr, &addr_len) == -1) {
+    if (recvfrom(sockfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&broadcast_addr, &addr_len) == -1) {
         perror("Error recibiendo DHCP Acknowledgement");
     } else {
         struct Message msg;
@@ -136,7 +134,7 @@ void receive_ack(int sockfd, struct Client *client) {
 }
 
 // Función para enviar DHCP Renew Request
-void send_renew_request(int sockfd, struct sockaddr_in *server_addr, struct Client *client) {
+void send_renew_request(int sockfd, struct sockaddr_in *broadcast_addr, struct Client *client) {
     struct Message msg;
     char buffer[256];
 
@@ -150,7 +148,7 @@ void send_renew_request(int sockfd, struct sockaddr_in *server_addr, struct Clie
     serialize_message(&msg, buffer);
 
     // Enviar el mensaje de renovación al servidor
-    if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)server_addr, sizeof(*server_addr)) == -1) {
+    if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)broadcast_addr, sizeof(*broadcast_addr)) == -1) {
         perror("Error enviando DHCP Renew Request");
     } else {
         print_message_sent(&msg);
@@ -164,7 +162,7 @@ void send_renew_request(int sockfd, struct sockaddr_in *server_addr, struct Clie
 
 
 // Función para enviar DHCP Release
-void send_release(int sockfd, struct sockaddr_in *server_addr, struct Client *client) {
+void send_release(int sockfd, struct sockaddr_in *broadcast_addr, struct Client *client) {
     struct Message msg;
     char buffer[256];
 
@@ -175,7 +173,7 @@ void send_release(int sockfd, struct sockaddr_in *server_addr, struct Client *cl
 
     serialize_message(&msg, buffer);
 
-    if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)server_addr, sizeof(*server_addr)) == -1) {
+    if (sendto(sockfd, buffer, strlen(buffer), 0, (struct sockaddr *)broadcast_addr, sizeof(*broadcast_addr)) == -1) {
         perror("Error enviando DHCP Release");
     } else {
         print_message_sent(&msg);
@@ -183,7 +181,7 @@ void send_release(int sockfd, struct sockaddr_in *server_addr, struct Client *cl
 }
 
 // Función para verificar el tiempo de lease
-void check_lease_time(int sockfd, struct sockaddr_in *server_addr, struct Client *client) {
+void check_lease_time(int sockfd, struct sockaddr_in *broadcast_addr, struct Client *client) {
     static time_t last_check_time = 0;
     time_t current_time = time(NULL);
 
@@ -195,7 +193,7 @@ void check_lease_time(int sockfd, struct sockaddr_in *server_addr, struct Client
     // Solo intentar renovar si ha pasado más de la mitad del tiempo del lease
     if (current_time - last_check_time >= client->lease_time / 2) {
         printf("El tiempo de lease está por expirar. Intentando renovar IP: %s\n", client->assigned_ip);
-        send_renew_request(sockfd, server_addr, client);
+        send_renew_request(sockfd, broadcast_addr, client);
         last_check_time = current_time;
     }
 }
@@ -210,15 +208,13 @@ void print_client_info(struct Client *client) {
     printf("Gateway Asignado: %s\n", client->assigned_gateway);
     printf("Máscara de Subred: %s\n", client->assigned_subnet_mask);
     printf("Tiempo de Lease: %d segundos\n", client->lease_time);
-    printf("IP del Servidor DHCP: %s\n", client->server_ip);
-    printf("IP del Relay (si aplica): %s\n", client->relay_ip);
 }
 
 // Manejador de señales para enviar DHCP Release antes de salir
 void signal_handler(int sig) {
     if (sig == SIGINT || sig == SIGHUP) {
         printf("Interrupción recibida, enviando DHCP Release...\n");
-        send_release(sockfd, &server_addr, &client);
+        send_release(sockfd, &broadcast_addr, &client);
         close(sockfd);
         printf("Socket cerrado. Saliendo del programa.\n");
         exit(0);  // Terminar el programa
@@ -246,21 +242,21 @@ int main() {
     }
 
     // Configurar la dirección del servidor DHCP
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(2000);  // Puerto 67 para DHCP server
-    inet_pton(AF_INET, "255.255.255.255", &server_addr.sin_addr);  // La IP del servidor
+    memset(&broadcast_addr, 0, sizeof(broadcast_addr));
+    broadcast_addr.sin_family = AF_INET;
+    broadcast_addr.sin_port = htons(1067);  // Puerto 67 para DHCP server
+    broadcast_addr.sin_addr.s_addr = INADDR_BROADCAST; //IP para broadcast
 
     int broadcastEnable = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable));
     // Enviar DHCP Discover
-    send_discover(sockfd, &server_addr, &client);
+    send_discover(sockfd, &broadcast_addr, &client);
 
     // Recibir DHCP Offer
     receive_offer(sockfd, &client);
 
     // Enviar DHCP Request
-    send_request(sockfd, &server_addr, &client);
+    send_request(sockfd, &broadcast_addr, &client);
 
     // Recibir DHCP Acknowledgement
     receive_ack(sockfd, &client);
@@ -269,7 +265,7 @@ int main() {
 
     // Monitorizar el tiempo de lease
     while (1) {
-        check_lease_time(sockfd, &server_addr, &client);
+        check_lease_time(sockfd, &broadcast_addr, &client);
     }
 
     return 0;
