@@ -1,4 +1,4 @@
-#include "message.h"
+#include "../include/message.h"
 #include <string.h>
 #include <stdio.h>
 

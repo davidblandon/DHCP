@@ -1,5 +1,5 @@
-#include "server.h"
-#include "message.h"
+#include "../include/server.h"
+#include "../include/message.h"
 #include "utils.c"
 #include <string.h>
 #include <stdio.h>
@@ -31,6 +31,46 @@ void init(Server* server, int lease_time_default, const char* dns, const char* g
     server->ip_pool_count = 0;
     server->relay_agent_count = 0;
 }
+void send_offer(Server* server, struct sockaddr_in* client_addr, int sockfd) {
+    // Implementación para enviar mensaje offer
+    struct Message msg;
+    char buffer[512];
+
+    // Asignar una IP del pool utilizando FLSM
+    char assigned_ip[16] = "";
+    for (int i = 0; i < server->ip_pool_count; i++) {
+        bool ip_in_use = false;
+        for (int j = 0; j < server->leased_ip_count; j++) {
+            if (strcmp(server->ip_pool[i], server->leased_ips[j].ip) == 0) {
+                ip_in_use = true;
+                break;
+            }
+        }
+        if (!ip_in_use) {
+            strncpy(assigned_ip, server->ip_pool[i], sizeof(assigned_ip));
+            break;
+        }
+    }
+
+    if (strlen(assigned_ip) == 0) {
+        printf("No available IP addresses in the pool.\n");
+        return;
+    }
+
+    msg.message_type = DHCP_OFFER;
+    strncpy(msg.ip_address, assigned_ip, sizeof(msg.ip_address));
+    strncpy(msg.dns, server->dns, sizeof(msg.dns));
+    strncpy(msg.gateway, server->gateway, sizeof(msg.gateway));
+    strncpy(msg.subnet_mask, server->subnet_mask, sizeof(msg.subnet_mask));
+    msg.lease_time = server->lease_time_default;
+    strncpy(msg.sender, "Server", sizeof(msg.sender));
+
+    serialize_message(&msg, buffer);
+    print_message_sent(&msg);
+
+    // Enviar mensaje offer
+    sendto(sockfd, buffer, sizeof(buffer), 0, (const struct sockaddr *)client_addr, sizeof(*client_addr));
+}
 
 void* handle_discover(void* arg) {
     struct ServerThreadArgs* args = (struct ServerThreadArgs*)arg;
@@ -53,7 +93,79 @@ void* handle_discover(void* arg) {
     return NULL;
 }
 
+void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const char* ip_address, int lease_time) {
+    // Implementación para enviar mensaje ack
+    struct Message msg;
+    char buffer[512];
 
+    // Guardar la IP en leased_ips
+    bool lease_exists = false;
+    for (int i = 0; i < server->leased_ip_count; i++) {
+        if (strcmp(server->leased_ips[i].ip, ip_address) == 0 && strcmp(server->leased_ips[i].mac, inet_ntoa(client_addr->sin_addr)) == 0) {
+            lease_exists = true;
+            break;
+        }
+    }
+    if (!lease_exists && server->leased_ip_count < MAX_IPS) {
+        strncpy(server->leased_ips[server->leased_ip_count].ip, ip_address, sizeof(server->leased_ips[server->leased_ip_count].ip));
+        strncpy(server->leased_ips[server->leased_ip_count].mac, inet_ntoa(client_addr->sin_addr), sizeof(server->leased_ips[server->leased_ip_count].mac));
+        server->leased_ips[server->leased_ip_count].lease_time = lease_time;
+        server->leased_ip_count++;
+    } else if (!lease_exists) {
+        printf("No more IP addresses can be leased.\n");
+    }
+
+    // Guardar la IP en clients (historial) si no está ya
+    bool client_exists = false;
+    for (int i = 0; i < server->client_count; i++) {
+        if (strcmp(server->clients[i].mac, inet_ntoa(client_addr->sin_addr)) == 0 && strcmp(server->clients[i].ip, ip_address) == 0) {
+            client_exists = true;
+            break;
+        }
+    }
+    if (!client_exists && server->client_count < MAX_IPS) {
+        strncpy(server->clients[server->client_count].ip, ip_address, sizeof(server->clients[server->client_count].ip));
+        strncpy(server->clients[server->client_count].mac, inet_ntoa(client_addr->sin_addr), sizeof(server->clients[server->client_count].mac));
+        server->clients[server->client_count].lease_time = lease_time;
+        server->client_count++;
+    } else if (!client_exists) {
+        printf("No more clients can be stored.\n");
+    }
+
+    msg.message_type = DHCP_ACK;
+    strncpy(msg.ip_address, ip_address, sizeof(msg.ip_address));
+    strncpy(msg.dns, server->dns, sizeof(msg.dns));
+    strncpy(msg.gateway, server->gateway, sizeof(msg.gateway));
+    strncpy(msg.subnet_mask, server->subnet_mask, sizeof(msg.subnet_mask));
+    msg.lease_time = lease_time;
+    strncpy(msg.sender, "Server", sizeof(msg.sender));
+
+    serialize_message(&msg, buffer);
+    print_message_sent(&msg);
+
+    // Enviar mensaje ack
+    sendto(sockfd, buffer, sizeof(buffer), 0, (const struct sockaddr *)client_addr, sizeof(*client_addr));
+}
+void process_renew_request(Server* server, const char* client_mac) {
+    // Implementación para procesar solicitud de renovación
+    for (int i = 0; i < server->client_count; i++) {
+        if (strcmp(server->clients[i].mac, client_mac) == 0) {
+            // Encontrar la IP asignada a la MAC y renovar el lease
+            struct sockaddr_in client_addr;
+            socklen_t addr_len = sizeof(client_addr);
+
+            // Configurar dirección del cliente
+            memset(&client_addr, 0, sizeof(client_addr));
+            client_addr.sin_family = AF_INET;
+            client_addr.sin_addr.s_addr = inet_addr(server->clients[i].ip);
+            client_addr.sin_port = htons(CLIENT_PORT);
+
+            send_ack(server, &client_addr, -1, server->clients[i].ip, server->lease_time_default);
+            return;
+        }
+    }
+    printf("No lease found for MAC: %s\n", client_mac);
+}
 
 void* handle_request(void* arg) {
     printf("initializing handle_request\n");
@@ -75,7 +187,7 @@ void* handle_request(void* arg) {
                     // La MAC está en el historial, llamar a process_renew_request
                     printf("Proceso de renew request");
                     process_renew_request(server, msg.client_mac);
-                    return;
+                    return 0;
                 }
             }
 
@@ -143,118 +255,19 @@ void listen_for_discover(Server* server, int sockfd) {
 
 
 
-void send_offer(Server* server, struct sockaddr_in* client_addr, int sockfd) {
-    // Implementación para enviar mensaje offer
-    struct Message msg;
-    char buffer[512];
-
-    // Asignar una IP del pool utilizando FLSM
-    char assigned_ip[16] = "";
-    for (int i = 0; i < server->ip_pool_count; i++) {
-        bool ip_in_use = false;
-        for (int j = 0; j < server->leased_ip_count; j++) {
-            if (strcmp(server->ip_pool[i], server->leased_ips[j].ip) == 0) {
-                ip_in_use = true;
-                break;
-            }
-        }
-        if (!ip_in_use) {
-            strncpy(assigned_ip, server->ip_pool[i], sizeof(assigned_ip));
-            break;
-        }
-    }
-
-    if (strlen(assigned_ip) == 0) {
-        printf("No available IP addresses in the pool.\n");
-        return;
-    }
-
-    msg.message_type = DHCP_OFFER;
-    strncpy(msg.ip_address, assigned_ip, sizeof(msg.ip_address));
-    strncpy(msg.dns, server->dns, sizeof(msg.dns));
-    strncpy(msg.gateway, server->gateway, sizeof(msg.gateway));
-    strncpy(msg.subnet_mask, server->subnet_mask, sizeof(msg.subnet_mask));
-    msg.lease_time = server->lease_time_default;
-    strncpy(msg.sender, "Server", sizeof(msg.sender));
-
-    serialize_message(&msg, buffer);
-    print_message_sent(&msg);
-
-    // Enviar mensaje offer
-    sendto(sockfd, buffer, sizeof(buffer), 0, (const struct sockaddr *)client_addr, sizeof(*client_addr));
-}
 
 
 
-void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const char* ip_address, int lease_time) {
-    // Implementación para enviar mensaje ack
-    struct Message msg;
-    char buffer[512];
-
-    // Guardar la IP en leased_ips
-    bool lease_exists = false;
+void reclaim_ip(Server* server, const char* client_mac) {
+    // Implementación para recolectar IPs expiradas
     for (int i = 0; i < server->leased_ip_count; i++) {
-        if (strcmp(server->leased_ips[i].ip, ip_address) == 0 && strcmp(server->leased_ips[i].mac, inet_ntoa(client_addr->sin_addr)) == 0) {
-            lease_exists = true;
-            break;
-        }
-    }
-    if (!lease_exists && server->leased_ip_count < MAX_IPS) {
-        strncpy(server->leased_ips[server->leased_ip_count].ip, ip_address, sizeof(server->leased_ips[server->leased_ip_count].ip));
-        strncpy(server->leased_ips[server->leased_ip_count].mac, inet_ntoa(client_addr->sin_addr), sizeof(server->leased_ips[server->leased_ip_count].mac));
-        server->leased_ips[server->leased_ip_count].lease_time = lease_time;
-        server->leased_ip_count++;
-    } else if (!lease_exists) {
-        printf("No more IP addresses can be leased.\n");
-    }
-
-    // Guardar la IP en clients (historial) si no está ya
-    bool client_exists = false;
-    for (int i = 0; i < server->client_count; i++) {
-        if (strcmp(server->clients[i].mac, inet_ntoa(client_addr->sin_addr)) == 0 && strcmp(server->clients[i].ip, ip_address) == 0) {
-            client_exists = true;
-            break;
-        }
-    }
-    if (!client_exists && server->client_count < MAX_IPS) {
-        strncpy(server->clients[server->client_count].ip, ip_address, sizeof(server->clients[server->client_count].ip));
-        strncpy(server->clients[server->client_count].mac, inet_ntoa(client_addr->sin_addr), sizeof(server->clients[server->client_count].mac));
-        server->clients[server->client_count].lease_time = lease_time;
-        server->client_count++;
-    } else if (!client_exists) {
-        printf("No more clients can be stored.\n");
-    }
-
-    msg.message_type = DHCP_ACK;
-    strncpy(msg.ip_address, ip_address, sizeof(msg.ip_address));
-    strncpy(msg.dns, server->dns, sizeof(msg.dns));
-    strncpy(msg.gateway, server->gateway, sizeof(msg.gateway));
-    strncpy(msg.subnet_mask, server->subnet_mask, sizeof(msg.subnet_mask));
-    msg.lease_time = lease_time;
-    strncpy(msg.sender, "Server", sizeof(msg.sender));
-
-    serialize_message(&msg, buffer);
-    print_message_sent(&msg);
-
-    // Enviar mensaje ack
-    sendto(sockfd, buffer, sizeof(buffer), 0, (const struct sockaddr *)client_addr, sizeof(*client_addr));
-}
-
-void process_renew_request(Server* server, const char* client_mac) {
-    // Implementación para procesar solicitud de renovación
-    for (int i = 0; i < server->client_count; i++) {
-        if (strcmp(server->clients[i].mac, client_mac) == 0) {
-            // Encontrar la IP asignada a la MAC y renovar el lease
-            struct sockaddr_in client_addr;
-            socklen_t addr_len = sizeof(client_addr);
-
-            // Configurar dirección del cliente
-            memset(&client_addr, 0, sizeof(client_addr));
-            client_addr.sin_family = AF_INET;
-            client_addr.sin_addr.s_addr = inet_addr(server->clients[i].ip);
-            client_addr.sin_port = htons(CLIENT_PORT);
-
-            send_ack(server, &client_addr, -1, server->clients[i].ip, server->lease_time_default);
+        if (strcmp(server->leased_ips[i].mac, client_mac) == 0) {
+            printf("Reclaiming IP: %s from MAC: %s\n", server->leased_ips[i].ip, client_mac);
+            // Eliminar la IP de leased_ips
+            for (int j = i; j < server->leased_ip_count - 1; j++) {
+                server->leased_ips[j] = server->leased_ips[j + 1];
+            }
+            server->leased_ip_count--;
             return;
         }
     }
@@ -279,22 +292,6 @@ void process_release(Server* server, int sockfd) {
 }
 
 
-void reclaim_ip(Server* server, const char* client_mac) {
-    // Implementación para recolectar IPs expiradas
-    for (int i = 0; i < server->leased_ip_count; i++) {
-        if (strcmp(server->leased_ips[i].mac, client_mac) == 0) {
-            printf("Reclaiming IP: %s from MAC: %s\n", server->leased_ips[i].ip, client_mac);
-            // Eliminar la IP de leased_ips
-            for (int j = i; j < server->leased_ip_count - 1; j++) {
-                server->leased_ips[j] = server->leased_ips[j + 1];
-            }
-            server->leased_ip_count--;
-            return;
-        }
-    }
-    printf("No lease found for MAC: %s\n", client_mac);
-}
-
 void manage_leases(Server* server) {
     // Implementación para monitorear leases
     while (1) {
@@ -311,6 +308,7 @@ void manage_leases(Server* server) {
 
 int main() {
     // Crear una instancia del servidor DHCP
+    printf("Servidor iniciado\n");
     Server server;
     init(&server, 120, "8.8.8.8", "192.168.1.254", "255.255.255.0");
 
@@ -341,7 +339,6 @@ int main() {
         close(sockfd);
         return 1;
     }
-
     // Iniciar escucha para DHCP Discover y Request
     listen_for_discover(&server, sockfd);
 
