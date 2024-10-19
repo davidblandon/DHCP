@@ -1,5 +1,6 @@
 #include "server.h"
 #include "message.h"
+#include <stdlib.h>
 #include "utils.c"
 #include <string.h>
 #include <stdio.h>
@@ -76,7 +77,7 @@ void* handle_request(void* arg) {
                     // La MAC está en el historial, llamar a process_renew_request
                     printf("Proceso de renew request");
                     process_renew_request(server, msg.client_mac);
-                    return;
+                    return NULL;
                 }
             }
 

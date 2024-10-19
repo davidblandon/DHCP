@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include "utils.c"
 #include <string.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <arpa/inet.h>
 
 #define MAX_IPS 256
 #define MAX_RELAY_AGENTS 10
@@ -29,6 +30,9 @@ typedef struct {
     int client_count;
 } Server;
 
-
+void send_offer(Server* server, struct sockaddr_in* client_addr, int sockfd);
+void send_ack(Server* server, struct sockaddr_in* client_addr, int sockfd, const char* ip_address, int lease_time);
+void process_renew_request(Server* server, const char* client_mac);
+void reclaim_ip(Server* server, const char* client_mac);
 
 #endif // SERVER_H
