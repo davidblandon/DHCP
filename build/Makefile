@@ -8,10 +8,11 @@ OBJ_SERVER = $(OBJ_DIR)/server.o $(OBJ_DIR)/message.o
 OBJ_CLIENT = $(OBJ_DIR)/client.o $(OBJ_DIR)/message.o
 TARGET_SERVER = dhcp_server
 TARGET_CLIENT = dhcp_client
+TARGET_RELAY = dhcp_relay
 
 # Reglas
 
-all: $(TARGET_SERVER) $(TARGET_CLIENT)
+all: $(TARGET_SERVER) $(TARGET_CLIENT) $(TARGET_RELAY)
 
 # Regla para compilar el servidor DHCP
 $(TARGET_SERVER): $(OBJ_SERVER)
@@ -20,9 +21,12 @@ $(TARGET_SERVER): $(OBJ_SERVER)
 # Regla para compilar el cliente DHCP
 $(TARGET_CLIENT): $(OBJ_CLIENT)
 	$(CC) $(CFLAGS) -o $(TARGET_CLIENT) $(OBJ_CLIENT)
+#Regla para compilar el relay
+$(TARGET_RELAY): 
+	$(CC) $(CFLAGS) $(SRC_DIR)/relay_handler.c  -o $(TARGET_RELAY) 
 
 # Regla para compilar el archivo server.c
-$(OBJ_DIR)/server.o: $(SRC_DIR)/server.c ../include/server.h ../include/message.h
+$(OBJ_DIR)/server.o: $(SRC_DIR)/server.c ../include/server.h ../include/message.h ../include/relay_handler.h
 	mkdir -p $(OBJ_DIR)
 	$(CC) $(CFLAGS) -c $(SRC_DIR)/server.c -o $(OBJ_DIR)/server.o
 

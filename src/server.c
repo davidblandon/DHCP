@@ -21,8 +21,7 @@ struct ServerThreadArgs {
 };
 
 // Constructor
-void init(Server* server, const char* ip, int lease_time_default, const char* dns, const char* gateway, const char* subnet_mask) {
-    strncpy(server->ip, ip, sizeof(server->ip));
+void init(Server* server, int lease_time_default, const char* dns, const char* gateway, const char* subnet_mask) {
     server->lease_time_default = lease_time_default;
     strncpy(server->dns, dns, sizeof(server->dns));
     strncpy(server->gateway, gateway, sizeof(server->gateway));
@@ -39,7 +38,7 @@ void* handle_discover(void* arg) {
     struct sockaddr_in client_addr = args->client_addr;  // Usar la dirección del cliente
 
     // Crear un nuevo socket temporal para enviar la respuesta al cliente
-    int temp_sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    int temp_sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (temp_sockfd == -1) {
         perror("No se pudo crear el socket temporal");
         free(args);
@@ -313,7 +312,7 @@ void manage_leases(Server* server) {
 int main() {
     // Crear una instancia del servidor DHCP
     Server server;
-    init(&server, "192.168.1.1", 120, "8.8.8.8", "192.168.1.254", "255.255.255.0");
+    init(&server, 120, "8.8.8.8", "192.168.1.254", "255.255.255.0");
 
     // Agregar algunas IPs al pool de IPs disponibles para asignar
     strncpy(server.ip_pool[0], "192.168.1.100", sizeof(server.ip_pool[0]));
@@ -323,17 +322,9 @@ int main() {
 
     // Crear un socket para la comunicación DHCP
     int sockfd;
-    sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd == -1) {
         perror("No se pudo crear el socket");
-        return 1;
-    }
-
-    // Configurar opciones del socket
-    int opt = 1;
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        perror("setsockopt falló");
-        close(sockfd);
         return 1;
     }
 

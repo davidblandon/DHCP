@@ -14,7 +14,6 @@ typedef struct {
 } LeasedIP;
 
 typedef struct {
-    char ip[16];
     int lease_time_default;
     char dns[256];
     char gateway[16];
