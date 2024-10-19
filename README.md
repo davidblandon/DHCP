@@ -24,11 +24,13 @@ Podemos ver en el codigo cómo se crea el socket UDP usando SOCK_DGRAM:
 ```
 
 ### Diagramas
-- Diagrama de Clases
+- Diagrama de Clases:
+  
+![image](https://github.com/user-attachments/assets/05e010c3-2709-4ecf-bba4-ef67ecac7d66)
 
 - Diagrama de Componentes:
   
-![image](https://github.com/user-attachments/assets/950cc553-0c4c-4af8-9223-388e16e7b294)
+![image](https://github.com/user-attachments/assets/0104355d-359f-40eb-a6f8-ce78b2d958fa)
 
 ### Video
 
